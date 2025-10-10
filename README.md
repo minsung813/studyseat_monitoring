@@ -1,1 +1,1 @@
-# Disaster-Support-System
+# 강화학습을 이용한 실시간 재난지원 시스템
