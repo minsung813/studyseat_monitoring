@@ -15,3 +15,8 @@ git add 바뀐코드
 git commit -m "메세지"
 git push origin 개인브랜치
 ```
+
+```
+# 가상환경 활성화
+conda activate 가상환경이름
+```
