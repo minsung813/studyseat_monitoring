@@ -1,3 +1,4 @@
+# streamlit run app/main.py
 import streamlit as st
 from logic.seat_logic import init_seats, set_seat_state, VALID_STATES
 
