@@ -1,1 +1,27 @@
+# Python 3.11.9 환경에서 가상환경(venv) 생성
+# 가상환경 생성 python -m venv venv
+# 가상환경 실행 .\venv\Scripts\activate
+
+# 다음 명령어로 한 번에 설치:
+# pip install -r requirements.txt
+
 streamlit==1.51.0
+
+# [참고] NVIDIA GPU가 없다면,
+#   이 라인을 지우고 'pip install torch torchvision' (CPU 버전)을
+#   따로 실행해도 '추론' 실행은 가능 (가급적이면 아래대로 설치)
+torch==2.5.0 --index-url https://download.pytorch.org/whl/cu121
+torchvision==0.20.0 --index-url https://download.pytorch.org/whl/cu121
+torchaudio==2.5.0 --index-url https://download.pytorch.org/whl/cu121
+
+# YOLOv8
+ultralytics==8.2.19
+
+# --- 데이터 처리 / CV ---
+opencv-python-headless==4.10.0.84  # UI 없는 서버 환경용
+pandas==2.3.3
+numpy==1.26.4
+Pillow==10.4.0                     # 이미지 처리를 위한 필수 라이브러리
+
+# --- 데이터셋 관리 (A팀원용) ---
+roboflow==1.1.33
