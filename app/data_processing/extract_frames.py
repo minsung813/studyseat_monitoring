@@ -5,7 +5,7 @@ import sys
 # --- 1. 설정 (Configuration) ---
 
 # [수정됨] 모든 영상 데이터셋 폴더를 저장할 기본 경로
-BASE_OUTPUT_DIR = 'app/data processing/dataset_raw'
+BASE_OUTPUT_DIR = 'app/data_processing/dataset_raw'
 
 # 몇 초(Second)에 1장씩 추출할지 설정 (1.0 = 1초, 5.0 = 5초)
 SECONDS_PER_FRAME = 1.0

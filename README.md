@@ -28,3 +28,26 @@ git pull origin main
 git merge 개인브랜치
 git push origin main
 ```
+
+```
+# 프로젝트 구조
+studyseat_monitoring/
+│
+├─ app/
+│  ├─ main.py                     # Streamlit 메인 대시보드
+│  │
+│  ├─ logic/
+│  │  └─ seat_logic.py            # 좌석 상태 관리 / 정책 로직(확장 예정)
+│  │
+│  └─ data_processing/
+│     ├─ extract_frames.py        # OpenCV: 영상 → 1초 단위 프레임 추출 스크립트
+│     │
+│     └─ dataset_raw/             # 영상에서 추출한 원본 이미지 데이터셋
+│        ├─ nothing1/
+│        ├─ object1/
+│        └─ people1/
+│
+├─ requirements.txt                # PyTorch·YOLO·Streamlit·OpenCV 등 패키지 목록
+├─ README.md
+└─ .gitignore
+```
