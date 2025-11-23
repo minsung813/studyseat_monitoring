@@ -22,3 +22,9 @@ Thumbs.db
 
 # 로그, 임시파일
 *.log
+
+# 기타
+Todo_list.md
+Nothing2/
+object2/
+people2/
