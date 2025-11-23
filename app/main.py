@@ -2,6 +2,16 @@
 import streamlit as st
 from datetime import datetime, timedelta
 from logic.seat_logic import init_seats, set_seat_state, VALID_STATES, check_status, update_policies
+import json
+
+from ultralytics import YOLO
+
+model = YOLO("yolov8n.pt")   # or yolov8s.pt, yolov11n.pt 등
+
+
+
+with open("seats_roi.json", "r") as f:
+    seat_rois = json.load(f)
 
 st.set_page_config(
     page_title="열람실 좌석 모니터링",
@@ -144,3 +154,40 @@ if alerts:
 else:
     # 나중엔 이 문구는 빼도 됨. 지금은 동작 확인용.
     st.caption("현재 정책 위반/의심 좌석 없음 (테스트용 기본 문구)")
+
+import cv2
+import numpy as np
+import streamlit as st
+
+st.subheader("🎥 ROI 확인용 - 웹캠 테스트")
+
+start_cam = st.button("웹캠으로 ROI 테스트하기")
+frame_window = st.empty()
+
+if start_cam:
+    cap = cv2.VideoCapture(0)
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            st.error("웹캠을 불러올 수 없습니다.")
+            break
+
+        # 웹캠 프레임 크기와 JSON 좌표 맞추기
+        h, w, _ = frame.shape
+
+        # ROI 그리기
+        for idx, r in enumerate(seat_rois):
+            x1, y1, x2, y2 = r["x1"], r["y1"], r["x2"], r["y2"]
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.putText(frame, f"Seat {idx+1}", (x1, y1-8),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,0), 2)
+
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frame_window.image(frame_rgb)
+
+        # 종료 조건
+        if not start_cam:
+            break
+
+    cap.release()

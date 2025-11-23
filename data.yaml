@@ -1,0 +1,5 @@
+train: app/data_processing/dataset_raw/object1
+val: app/data_processing/dataset_raw/nothing1
+
+nc: 2
+names: ["person", "backpack"]
