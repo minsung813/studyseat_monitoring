@@ -42,7 +42,7 @@ ret, frame = cap.read()
 cap.release()
 
 if not ret:
-    print("❌ 웹캠에서 프레임을 불러오지 못했습니다.")
+    print("웹캠에서 프레임을 불러오지 못했습니다.")
     exit()
 
 cv2.namedWindow("ROI Selector")
@@ -63,7 +63,7 @@ while True:
         break
 
     elif key == 27:  # ESC
-        print("❌ ROI 선택 취소")
+        print(" ROI 선택 취소")
         break
 
 cv2.destroyAllWindows()
