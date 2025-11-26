@@ -34,20 +34,27 @@ git push origin main
 studyseat_monitoring/
 │
 ├─ app/
-│  ├─ main.py                     # Streamlit 메인 대시보드
+│  ├─ data_processing/
+│  │  ├─ dataset_raw/                 ← 원본 영상 및 프레임 저장
+│  │  ├─ extract_frames.py            ← 영상 → 프레임 추출 스크립트
+│  │  ├─ roi_selector.py              ← 좌석 ROI 설정 스크립트 (C팀원 작업)
 │  │
 │  ├─ logic/
-│  │  └─ seat_logic.py            # 좌석 상태 관리 / 정책 로직(확장 예정)
+│  │  ├─ seat_logic.py                ← 3-State + 정책 엔진 (B팀 작업)
 │  │
-│  └─ data_processing/
-│     ├─ extract_frames.py        # OpenCV: 영상 → 1초 단위 프레임 추출 스크립트
-│     │
-│     └─ dataset_raw/             # 영상에서 추출한 원본 이미지 데이터셋
-│        ├─ nothing1/
-│        ├─ object1/
-│        └─ people1/
+│  ├─ model/
+│  │  ├─ 학술제_AI모델_v1_best.pt     ← A팀원이 제공한 YOLO 모델 체크포인트
+│  │
+│  ├─ main.py                         ← Streamlit 메인 앱
 │
-├─ requirements.txt                # PyTorch·YOLO·Streamlit·OpenCV 등 패키지 목록
-├─ README.md
-└─ .gitignore
+├─ data.yaml                          ← YOLO 학습용 데이터셋 설정
+├─ seats_roi.json                     ← ROI 좌표 정보 (C팀원 작업)
+├─ train.py                           ← YOLO 파인튜닝 스크립트 (A팀원 작업)
+├─ yolo11n.pt                         ← YOLO11n 모델 가중치
+├─ yolov8n.pt                         ← YOLOv8n 모델 가중치
+│
+├─ requirements.txt                   ← 개발 환경 패키지 리스트
+├─ README.md                          ← 프로젝트 문서
+├─ .gitignore
+
 ```
