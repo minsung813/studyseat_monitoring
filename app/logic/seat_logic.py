@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import random
 
 # 좌석 목록 (필요하면 나중에 확장 가능)
 INITIAL_SEATS = ["A1", "A2", "A3", "B1", "B2", "B3"]
@@ -32,11 +33,14 @@ def init_seats():
     """
     seats = {}
     for seat in INITIAL_SEATS:
+        is_reserved = random.choice([True, False])  # 🔥 랜덤 예약 생성
         seats[seat] = {
             "state": "Empty",
             "last_update": None,
-            "reserved": False,
-            "reserved_at": None,
+            # 예약 랜덤 설정
+            "reserved": is_reserved,
+            "reserved_at": datetime.now() if is_reserved else None,
+            # 정책 엔진용
             "ever_occupied": False,
             "authorized": True,
         }
