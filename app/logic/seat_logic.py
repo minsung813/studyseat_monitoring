@@ -66,36 +66,32 @@ def set_seat_state(seats, seat_id, new_state):
 # Day 3-4: 3-State 판별 로직
 # =========================
 
-# YOLO 클래스 이름과 매핑할 집합 (A팀이 실제 클래스 이름에 맞게 조정 예정)
-PERSON_CLASSES = {"person"}
-BAG_CLASSES = {"backpack", "bag"}
-DEVICE_CLASSES = {"laptop"}
-
 
 def check_status(detections):
     """
     YOLO 탐지 결과(클래스 이름 리스트)를 받아서
     좌석 상태 (Empty / Occupied / Camped)를 결정.
 
-    detections 예시:
-        []                          -> "Empty"
-        ["person"]                  -> "Occupied"
-        ["backpack"]                -> "Camped"
-        ["laptop", "backpack"]      -> "Camped"
-        ["person", "backpack"]      -> "Occupied"
+    Camped 기준:
+        - backpack
+        - laptop
+        - book
     """
+
     det_set = set(detections)
 
     # 1) 사람이 보이면 무조건 Occupied
-    if det_set & PERSON_CLASSES:
+    if "person" in det_set:
         return "Occupied"
 
-    # 2) 사람은 없지만 짐/노트북만 있으면 Camped
-    if det_set & (BAG_CLASSES | DEVICE_CLASSES):
+    # 2) 짐만 있으면 Camped (backpack, laptop, book)
+    CAMPED_ITEMS = {"backpack", "laptop", "book"}
+    if det_set & CAMPED_ITEMS:
         return "Camped"
 
     # 3) 아무것도 없으면 Empty
     return "Empty"
+
 
 
 # =========================

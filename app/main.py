@@ -40,7 +40,7 @@ def run_webcam_test(model, seat_rois):
     stframe = st.empty()
 
     # ⭐ 유지할 클래스 선언
-    keep_classes = ["person", "backpack", "laptop", "book", "clothes"]
+    keep_classes = ["person", "backpack", "laptop", "book"]
 
     # ⭐ 클래스 재매핑 함수
     def remap_class(name):
