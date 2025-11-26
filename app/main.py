@@ -17,7 +17,7 @@ import csv
 # ------------------------------------------------------------
 # 🎯 YOLO 모델 로드
 # ------------------------------------------------------------
-model = YOLO("model_v1.pt")
+model = YOLO("yolov8n.pt")
 
 
 # ------------------------------------------------------------
@@ -39,6 +39,16 @@ def run_webcam_test(model, seat_rois):
 
     stframe = st.empty()
 
+    # ⭐ 유지할 클래스 선언
+    keep_classes = ["person", "backpack", "laptop", "book"]
+
+    # ⭐ 클래스 재매핑 함수
+    def remap_class(name):
+        if name in keep_classes:
+            return name
+        else:
+            return "object"
+
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -51,17 +61,34 @@ def run_webcam_test(model, seat_rois):
         for box in results.boxes:
             cls = int(box.cls[0])
             name = results.names[cls]
-            x1, y1, x2, y2 = box.xyxy[0]
+
+            # ⭐ 클래스 재매핑
+            name = remap_class(name)
+
+            # ⭐ bounding box 좌표
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+
+            # ⭐⭐ YOLO 박스 그리기 ⭐⭐
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
+            cv2.putText(
+                frame, name, (x1, y1 - 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2
+            )
+
+            # 탐지 목록 저장
             detections.append({
                 "name": name,
-                "bbox": [int(x1), int(y1), int(x2), int(y2)]
+                "bbox": [x1, y1, x2, y2]
             })
+
+        
+        
 
         # 좌석 상태 계산
         seat_states = {}
 
         for idx, roi in enumerate(seat_rois):
-            seat_id = f"Seat{idx+1}"
+            seat_id = list(st.session_state["seats"].keys())[idx]
             x1, y1, x2, y2 = roi["x1"], roi["y1"], roi["x2"], roi["y2"]
 
             in_roi = []
@@ -178,7 +205,6 @@ for seat_id, info in seats.items():
     })
 
 st.table(table)
-
 
 # ------------------------------------------------------------
 # Day 5 정책 엔진 테스트
@@ -327,21 +353,32 @@ LOG_CSV = "seat_state_log.csv"
 if st.session_state["ai_running"]:
     cap = cv2.VideoCapture(0)
 
+    keep_classes = ["person", "backpack", "laptop", "book", "clothes"]
+
+    def remap_class(name):
+        if name in keep_classes:
+            return name
+        else:
+            return "object"
+
     while st.session_state["ai_running"]:
         ret, frame = cap.read()
         if not ret:
             st.error("웹캠을 불러올 수 없습니다.")
             break
 
-        results = model(frame)[0]
+        # YOLO는 RGB 이미지로 추론
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = model(rgb)[0]
 
         detections = []
         for box in results.boxes:
             cls = int(box.cls[0])
-            name = results.names[cls]
+            name = remap_class(results.names[cls])
+
             x1, y1, x2, y2 = map(int, box.xyxy[0])
 
-            # ⭐ 바운딩박스 그리기
+            # Bounding box draw
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
             cv2.putText(frame, name, (x1, y1 - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
@@ -351,14 +388,20 @@ if st.session_state["ai_running"]:
                 "bbox": [x1, y1, x2, y2]
             })
 
-        # ROI 좌석 판별
+
+        # -----------------------------
+        # ROI 판별
+        # -----------------------------
+        SEAT_IDS = list(st.session_state["seats"].keys())  # 실제 seat ID (A1~B3)
+
         seat_states = {}
         for idx, roi in enumerate(seat_rois):
+            seat_id = SEAT_IDS[idx]   # ← Seat1이 아니라 A1처럼 실제 좌석 ID 사용
+
             x1, y1, x2, y2 = roi["x1"], roi["y1"], roi["x2"], roi["y2"]
 
-            # ROI 박스 그리기
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            cv2.putText(frame, f"Seat{idx+1}", (x1, y1 - 10),
+            cv2.putText(frame, seat_id, (x1, y1 - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
             in_roi = []
@@ -368,19 +411,31 @@ if st.session_state["ai_running"]:
                     in_roi.append(d["name"])
 
             inferred = check_status(in_roi)
-            seat_states[f"Seat{idx+1}"] = inferred
+            seat_states[seat_id] = inferred
 
-        # Streamlit에 바운딩박스 그린 화면 출력
-        cam_window.image(frame, channels="BGR")
 
-        # 좌석 상태 테이블 출력
-        status_window.table(seat_states)
 
-        # CSV 기록
-        df = pd.DataFrame([seat_states])
-        df.to_csv(LOG_CSV, mode='a',
-                  header=not pd.io.common.file_exists(LOG_CSV),
-                  index=False)
+        # -----------------------------
+        # 🔥 예약된 좌석만 필터링 및 표시
+        # -----------------------------
+        filtered_states = {
+            seat: state
+            for seat, state in seat_states.items()
+            if st.session_state["seats"][seat]["reserved"]
+        }
+
+        # Streamlit에 출력
+        cam_window.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        status_window.table(filtered_states)
+
+        # CSV 저장
+        df = pd.DataFrame([filtered_states])
+        df.to_csv(
+            LOG_CSV,
+            mode='a',
+            header=not pd.io.common.file_exists(LOG_CSV),
+            index=False,
+        )
 
         time.sleep(0.2)
 
