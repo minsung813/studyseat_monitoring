@@ -17,7 +17,7 @@ import csv
 # ------------------------------------------------------------
 # 🎯 YOLO 모델 로드
 # ------------------------------------------------------------
-model = YOLO("model_v1.pt")
+model = YOLO("yolov8n.pt")
 
 
 # ------------------------------------------------------------
@@ -39,6 +39,16 @@ def run_webcam_test(model, seat_rois):
 
     stframe = st.empty()
 
+    # ⭐ 유지할 클래스 선언
+    keep_classes = ["person", "backpack", "laptop", "book", "clothes"]
+
+    # ⭐ 클래스 재매핑 함수
+    def remap_class(name):
+        if name in keep_classes:
+            return name
+        else:
+            return "object"
+
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -51,11 +61,28 @@ def run_webcam_test(model, seat_rois):
         for box in results.boxes:
             cls = int(box.cls[0])
             name = results.names[cls]
-            x1, y1, x2, y2 = box.xyxy[0]
+
+            # ⭐ 클래스 재매핑
+            name = remap_class(name)
+
+            # ⭐ bounding box 좌표
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+
+            # ⭐⭐ YOLO 박스 그리기 ⭐⭐
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
+            cv2.putText(
+                frame, name, (x1, y1 - 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2
+            )
+
+            # 탐지 목록 저장
             detections.append({
                 "name": name,
-                "bbox": [int(x1), int(y1), int(x2), int(y2)]
+                "bbox": [x1, y1, x2, y2]
             })
+
+        
+        
 
         # 좌석 상태 계산
         seat_states = {}
@@ -327,36 +354,53 @@ LOG_CSV = "seat_state_log.csv"
 if st.session_state["ai_running"]:
     cap = cv2.VideoCapture(0)
 
+    # 우리가 유지할 클래스
+    keep_classes = ["person", "backpack", "laptop", "book", "clothes"]
+
+    def remap_class(name):
+        if name in keep_classes:
+            return name
+        else:
+            return "object"
+
     while st.session_state["ai_running"]:
         ret, frame = cap.read()
         if not ret:
             st.error("웹캠을 불러올 수 없습니다.")
             break
 
-        results = model(frame)[0]
+        # YOLO는 RGB 이미지로 추론해야 정확함
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = model(rgb)[0]
 
         detections = []
         for box in results.boxes:
             cls = int(box.cls[0])
             name = results.names[cls]
+            name = remap_class(name)
+
             x1, y1, x2, y2 = map(int, box.xyxy[0])
 
-            # ⭐ 바운딩박스 그리기
+            # 🎯 바운딩박스 그리기
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
-            cv2.putText(frame, name, (x1, y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+            cv2.putText(
+                frame, name, (x1, y1 - 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2
+            )
 
             detections.append({
                 "name": name,
                 "bbox": [x1, y1, x2, y2]
             })
 
-        # ROI 좌석 판별
+        # -----------------------------
+        # ROI 판별
+        # -----------------------------
         seat_states = {}
         for idx, roi in enumerate(seat_rois):
             x1, y1, x2, y2 = roi["x1"], roi["y1"], roi["x2"], roi["y2"]
 
-            # ROI 박스 그리기
+            # ROI 표시
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
             cv2.putText(frame, f"Seat{idx+1}", (x1, y1 - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
@@ -370,17 +414,20 @@ if st.session_state["ai_running"]:
             inferred = check_status(in_roi)
             seat_states[f"Seat{idx+1}"] = inferred
 
-        # Streamlit에 바운딩박스 그린 화면 출력
-        cam_window.image(frame, channels="BGR")
+        # Streamlit에 출력 (RGB 변환)
+        cam_window.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
 
         # 좌석 상태 테이블 출력
         status_window.table(seat_states)
 
-        # CSV 기록
+        # CSV 저장
         df = pd.DataFrame([seat_states])
-        df.to_csv(LOG_CSV, mode='a',
-                  header=not pd.io.common.file_exists(LOG_CSV),
-                  index=False)
+        df.to_csv(
+            LOG_CSV,
+            mode='a',
+            header=not pd.io.common.file_exists(LOG_CSV),
+            index=False
+        )
 
         time.sleep(0.2)
 
