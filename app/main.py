@@ -100,7 +100,10 @@ def run_webcam_test(model, seat_rois):
                 if not (dx2 < x1 or dx1 > x2 or dy2 < y1 or dy1 > y2):
                     in_roi.append(d["name"])
 
-            seat_states[seat_id] = check_status(in_roi)
+            ai_state = check_status(in_roi)
+            final_state = update_seat_state(st.session_state["seats"][seat_id], ai_state)
+            seat_states[seat_id] = final_state
+
 
         # 화면 출력
         stframe.image(frame, channels="BGR")
@@ -399,11 +402,11 @@ if st.session_state["ai_running"]:
         seat_states = {}
         for idx, roi in enumerate(seat_rois):
             seat_id = SEAT_IDS[idx]
-        
+
             x1, y1, x2, y2 = roi["x1"], roi["y1"], roi["x2"], roi["y2"]
-        
+
             seat_info = st.session_state["seats"][seat_id]
-        
+
             # ROI 색 결정
             if seat_info.get("temp_state") is not None:
                 roi_color = (0, 255, 255)      # Yellow (임시 상태)
@@ -411,25 +414,25 @@ if st.session_state["ai_running"]:
                 roi_color = (0, 255, 0)        # Green (예약된 좌석)
             else:
                 roi_color = (0, 0, 255)        # Red (예약 안됨)
-        
+
             # ROI 박스 그리기
             cv2.rectangle(frame, (x1, y1), (x2, y2), roi_color, 2)
-        
+
             # 텍스트도 같이 표시
             label_text = seat_id
             if seat_info.get("temp_state"):
                 label_text += f" ({seat_info['temp_state']}?)"
-        
+
             cv2.putText(frame, label_text, (x1, y1 - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, roi_color, 2)
-        
+
             # ROI 내부 detection 체크
             in_roi = []
             for d in detections:
                 dx1, dy1, dx2, dy2 = d["bbox"]
                 if not (dx2 < x1 or dx1 > x2 or dy2 < y1 or dy1 > y2):
                     in_roi.append(d["name"])
-        
+
             inferred = check_status(in_roi)
 
             # 좌석 구조 가져오기

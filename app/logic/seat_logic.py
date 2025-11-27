@@ -13,6 +13,15 @@ def update_seat_state(seat_info, inferred_state):
         temp_state  : 임시 상태 (확정 전)
         remain_sec  : 임시 상태가 확정되기까지 남은 시간 (초)
     """
+    # 1) 예약이 안 된 좌석 → 상태 업데이트 금지
+    if not seat_info["reserved"]:
+        seat_info["state"] = "Empty"
+        seat_info["transition_state"] = None
+        seat_info["transition_start"] = None
+        return "Empty"
+
+    # ------ 예약된 좌석만 아래 로직 실행 ------
+
     now = datetime.now()
 
     current_state = seat_info["state"]
@@ -53,6 +62,7 @@ def update_seat_state(seat_info, inferred_state):
 
     # 아직 확정 안됨
     return current_state, temp_state, remain
+
 
 # 좌석 목록 (필요하면 나중에 확장 가능)
 INITIAL_SEATS = ["A1", "A2", "A3", "B1", "B2", "B3"]
@@ -248,5 +258,46 @@ def update_policies(seats, now=None):
                     f"{seat_id} 좌석: 비인가 사용자 혹은 비인가 사용 패턴이 감지되었습니다."
                 ),
             })
+
+        alerts = []
+    now = datetime.now()
+
+    for seat_id, info in seats.items():
+        state = info["state"]
+        reserved = info["reserved"]
+        last_update = info["last_update"]
+
+        if last_update is None:
+            continue
+
+        # 지속 시간 계산
+        elapsed = now - last_update
+
+        # ---------------------------
+        # 1) Empty 상태 → 1분 지나면 예약 해제
+        # ---------------------------
+        if state == "Empty" and reserved:
+            if elapsed >= timedelta(minutes=1):  # 시연용 1분
+                info["reserved"] = False
+                alerts.append({
+                    "seat": seat_id,
+                    "type": "Auto-Unreserve-Empty",
+                    "message": f"{seat_id}는 Empty 상태가 1분 지속되어 예약이 자동 해제되었습니다."
+                })
+
+        # ---------------------------
+        # 2) Camped 상태 → 3분 지나면 예약 해제
+        # ---------------------------
+        if state == "Camped" and reserved:
+            if elapsed >= timedelta(minutes=3):  # 시연용 3분
+                info["reserved"] = False
+                alerts.append({
+                    "seat": seat_id,
+                    "type": "Auto-Unreserve-Camped",
+                    "message": f"{seat_id}는 Camped 상태가 3분 지속되어 예약이 자동 해제되었습니다."
+                })
+
+        # 🔥 last_update는 항상 유지
+        seats[seat_id]["last_update"] = info["last_update"]
 
     return alerts
