@@ -19,7 +19,7 @@ from logic.seat_logic import update_seat_state
 # ------------------------------------------------------------
 # 🎯 YOLO 모델 로드
 # ------------------------------------------------------------
-model = YOLO("yolov8n.pt")
+model = YOLO("yolov8m.pt")
 
 
 # ------------------------------------------------------------
@@ -444,7 +444,7 @@ if st.session_state["ai_running"]:
                     label_text += f" ({seat_info['temp_state']}? {seat_info['remain']}s)"
                 else:
                     label_text += f" ({seat_info['temp_state']}?)"
-            
+
             cv2.putText(frame, label_text, (x1, y1 - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, roi_color, 2)
 
