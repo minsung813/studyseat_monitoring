@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta
 import random
 
-
 from datetime import datetime
 
 STATE_STABLE_TIME = 20   # 2분
@@ -262,15 +261,55 @@ def update_policies(seats, now=None):
                 ),
             })
 
+        # --- 예약 해제까지 남은 시간 계산 ---
+        for seat_id in seats:
+            seat = seats[seat_id]  # ✅ seat을 정의해준다
+            last_update = seat["last_update"]
 
         now = datetime.now()
         
+        for sid, seat in seats.items():
+        
+            state = seat["state"]
+            reserved = seat["reserved"]
+            last_update = seat["last_update"]
+            reserved_at = seat["reserved_at"]
+        
+            # last_update가 없는 경우 보정
+            if last_update is None:
+                if reserved and reserved_at is not None:
+                    last_update = reserved_at
+                else:
+                    seat["release_remain"] = None
+                    continue
+                
+            elapsed = (now - last_update).total_seconds()
+        
+            # Empty → 1분 (60초)
+            if reserved and state == "Empty":
+                remain = 60 - int(elapsed)
+                seat["release_remain"] = max(remain, 0)
+        
+            # Camped → 3분 (180초)
+            elif reserved and state == "Camped":
+                remain = 180 - int(elapsed)
+                seat["release_remain"] = max(remain, 0)
+        
+            # 그 외는 카운트다운 없음
+            else:
+                seat["release_remain"] = None
+
+
+
+
+        now = datetime.now()
+
         for seat_id, info in seats.items():
             state = info["state"]
             reserved = info["reserved"]
             last_update = info["last_update"]
             reserved_at = info["reserved_at"]
-        
+
             # ---------------------------
             # last_update = None 보정
             # ---------------------------
@@ -282,7 +321,7 @@ def update_policies(seats, now=None):
                     continue
                 
             elapsed = now - last_update
-        
+
             # ---------------------------
             # 1) Empty → 1분 지나면 예약 해제
             # ---------------------------
@@ -294,7 +333,7 @@ def update_policies(seats, now=None):
                         "type": "Auto-Unreserve-Empty",
                         "message": f"{seat_id}는 Empty 상태가 1분 지속되어 예약이 자동 해제되었습니다."
                     })
-        
+
             # ---------------------------
             # 2) Camped → 3분 지나면 예약 해제
             # ---------------------------
@@ -306,9 +345,9 @@ def update_policies(seats, now=None):
                         "type": "Auto-Unreserve-Camped",
                         "message": f"{seat_id}는 Camped 상태가 3분 지속되어 예약이 자동 해제되었습니다."
                     })
-        
+
             # last_update 유지
             seats[seat_id]["last_update"] = info["last_update"]
-        
+
 
     return alerts

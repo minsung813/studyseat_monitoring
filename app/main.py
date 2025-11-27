@@ -444,6 +444,15 @@ if st.session_state["ai_running"]:
                     label_text += f" ({seat_info['temp_state']}? {seat_info['remain']}s)"
                 else:
                     label_text += f" ({seat_info['temp_state']}?)"
+                # 예약 해제 카운트다운 표시
+            if seat_info["reserved"]:
+                if seat_info["state"] in ["Empty", "Camped"]:
+                    remain = seat_info.get("release_remain")
+                    if remain is not None:
+                        mins = remain // 60
+                        secs = remain % 60
+                        label_text += f" [{mins:02d}:{secs:02d}]"
+
 
             cv2.putText(frame, label_text, (x1, y1 - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, roi_color, 2)
