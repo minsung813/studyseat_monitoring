@@ -1,6 +1,59 @@
 from datetime import datetime, timedelta
 import random
 
+
+from datetime import datetime
+
+STATE_STABLE_TIME = 20   # 2분
+
+def update_seat_state(seat_info, inferred_state):
+    """
+    반환값:
+        final_state : 현재 확정된 상태 (기존 상태)
+        temp_state  : 임시 상태 (확정 전)
+        remain_sec  : 임시 상태가 확정되기까지 남은 시간 (초)
+    """
+    now = datetime.now()
+
+    current_state = seat_info["state"]
+    temp_state = seat_info.get("temp_state")
+    temp_started = seat_info.get("temp_started")
+
+    # 1) 상태가 같으며 임시상태 필요없음 → temp 초기화
+    if inferred_state == current_state:
+        seat_info["temp_state"] = None
+        seat_info["temp_started"] = None
+        return current_state, None, None
+
+    # 2) temp_state 시작
+    if temp_state is None:
+        seat_info["temp_state"] = inferred_state
+        seat_info["temp_started"] = now
+        remain = STATE_STABLE_TIME
+        return current_state, inferred_state, remain
+
+    # 3) temp_state가 있는데 다른 상태로 바뀜 → 리셋
+    if temp_state != inferred_state:
+        seat_info["temp_state"] = inferred_state
+        seat_info["temp_started"] = now
+        remain = STATE_STABLE_TIME
+        return current_state, inferred_state, remain
+
+    # 4) temp_state 유지 시간 체크
+    elapsed = (now - temp_started).total_seconds()
+    remain = max(0, STATE_STABLE_TIME - int(elapsed))
+
+    if elapsed >= STATE_STABLE_TIME:
+        # 확정 상태로 변경!
+        seat_info["state"] = inferred_state
+        seat_info["last_update"] = now
+        seat_info["temp_state"] = None
+        seat_info["temp_started"] = None
+        return inferred_state, None, None
+
+    # 아직 확정 안됨
+    return current_state, temp_state, remain
+
 # 좌석 목록 (필요하면 나중에 확장 가능)
 INITIAL_SEATS = ["A1", "A2", "A3", "B1", "B2", "B3"]
 
