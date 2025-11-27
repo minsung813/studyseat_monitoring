@@ -437,9 +437,14 @@ if st.session_state["ai_running"]:
 
             # 텍스트도 같이 표시
             label_text = seat_id
-            if seat_info.get("temp_state"):
-                label_text += f" ({seat_info['temp_state']}?)"
 
+            # 임시 상태가 있을 경우
+            if seat_info.get("temp_state"):
+                if seat_info.get("remain") is not None:
+                    label_text += f" ({seat_info['temp_state']}? {seat_info['remain']}s)"
+                else:
+                    label_text += f" ({seat_info['temp_state']}?)"
+            
             cv2.putText(frame, label_text, (x1, y1 - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, roi_color, 2)
 

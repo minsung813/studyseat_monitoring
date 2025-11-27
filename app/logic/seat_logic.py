@@ -263,44 +263,52 @@ def update_policies(seats, now=None):
             })
 
 
-    now = datetime.now()
-
-    for seat_id, info in seats.items():
-        state = info["state"]
-        reserved = info["reserved"]
-        last_update = info["last_update"]
-
-        if last_update is None:
-            continue
-
-        # 지속 시간 계산
-        elapsed = now - last_update
-
-        # ---------------------------
-        # 1) Empty 상태 → 1분 지나면 예약 해제
-        # ---------------------------
-        if state == "Empty" and reserved:
-            if elapsed >= timedelta(minutes=1):  # 시연용 1분
-                info["reserved"] = False
-                alerts.append({
-                    "seat": seat_id,
-                    "type": "Auto-Unreserve-Empty",
-                    "message": f"{seat_id}는 Empty 상태가 1분 지속되어 예약이 자동 해제되었습니다."
-                })
-
-        # ---------------------------
-        # 2) Camped 상태 → 3분 지나면 예약 해제
-        # ---------------------------
-        if state == "Camped" and reserved:
-            if elapsed >= timedelta(minutes=3):  # 시연용 3분
-                info["reserved"] = False
-                alerts.append({
-                    "seat": seat_id,
-                    "type": "Auto-Unreserve-Camped",
-                    "message": f"{seat_id}는 Camped 상태가 3분 지속되어 예약이 자동 해제되었습니다."
-                })
-
-        # 🔥 last_update는 항상 유지
-        seats[seat_id]["last_update"] = info["last_update"]
+        now = datetime.now()
+        
+        for seat_id, info in seats.items():
+            state = info["state"]
+            reserved = info["reserved"]
+            last_update = info["last_update"]
+            reserved_at = info["reserved_at"]
+        
+            # ---------------------------
+            # last_update = None 보정
+            # ---------------------------
+            if last_update is None:
+                # 예약된 좌석인데 last_update가 없다 → 예약 시점 기준으로 계산
+                if reserved and reserved_at is not None:
+                    last_update = reserved_at
+                else:
+                    continue
+                
+            elapsed = now - last_update
+        
+            # ---------------------------
+            # 1) Empty → 1분 지나면 예약 해제
+            # ---------------------------
+            if state == "Empty" and reserved:
+                if elapsed >= timedelta(minutes=1):
+                    info["reserved"] = False
+                    alerts.append({
+                        "seat": seat_id,
+                        "type": "Auto-Unreserve-Empty",
+                        "message": f"{seat_id}는 Empty 상태가 1분 지속되어 예약이 자동 해제되었습니다."
+                    })
+        
+            # ---------------------------
+            # 2) Camped → 3분 지나면 예약 해제
+            # ---------------------------
+            if state == "Camped" and reserved:
+                if elapsed >= timedelta(minutes=3):
+                    info["reserved"] = False
+                    alerts.append({
+                        "seat": seat_id,
+                        "type": "Auto-Unreserve-Camped",
+                        "message": f"{seat_id}는 Camped 상태가 3분 지속되어 예약이 자동 해제되었습니다."
+                    })
+        
+            # last_update 유지
+            seats[seat_id]["last_update"] = info["last_update"]
+        
 
     return alerts
