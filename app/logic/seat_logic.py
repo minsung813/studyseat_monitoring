@@ -166,6 +166,12 @@ def check_status(detections):
 # =========================
 
 def update_policies(seats, now=None):
+
+    if now is None:
+        now = datetime.now()
+
+    alerts = []
+
     """
     좌석 상태(seats)를 기준으로
     No-Show / 반납 / 캠핑 / 비인가 4가지 정책을 체크하고,
@@ -178,10 +184,7 @@ def update_policies(seats, now=None):
             ...
         ]
     """
-    if now is None:
-        now = datetime.now()
 
-    alerts = []
 
     camping_threshold = timedelta(minutes=POLICY_CONFIG["camping_minutes"])
     no_show_threshold = timedelta(minutes=POLICY_CONFIG["no_show_minutes"])
@@ -259,7 +262,7 @@ def update_policies(seats, now=None):
                 ),
             })
 
-        alerts = []
+
     now = datetime.now()
 
     for seat_id, info in seats.items():

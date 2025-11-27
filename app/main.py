@@ -103,6 +103,14 @@ def run_webcam_test(model, seat_rois):
             ai_state = check_status(in_roi)
             final_state = update_seat_state(st.session_state["seats"][seat_id], ai_state)
             seat_states[seat_id] = final_state
+        
+
+         # 정책 엔진 실행 (좌석 상태 다 업데이트한 후)
+        alerts = update_policies(st.session_state["seats"])
+        if alerts:
+            for a in alerts:
+                st.warning(f"[{a['type']}] {a['message']}")
+
 
 
         # 화면 출력
@@ -392,7 +400,8 @@ if st.session_state["ai_running"]:
                 "name": name,
                 "bbox": [x1, y1, x2, y2]
             })
-
+        # 모든 상태 업데이트 후 정책 엔진 실행
+ 
 
         # -----------------------------
         # ROI 판별 + 색상 지정
@@ -414,6 +423,14 @@ if st.session_state["ai_running"]:
                 roi_color = (0, 255, 0)        # Green (예약된 좌석)
             else:
                 roi_color = (0, 0, 255)        # Red (예약 안됨)
+
+            if not seat_info["reserved"]:
+                roi_color = (0, 0, 255)    # 예약 없음 → 빨간색
+            elif seat_info.get("temp_state") is not None:
+                roi_color = (0, 255, 255)  # 임시 상태 → 노란색
+            else:
+                roi_color = (0, 255, 0)    # 예약된 좌석 → 초록색
+
 
             # ROI 박스 그리기
             cv2.rectangle(frame, (x1, y1), (x2, y2), roi_color, 2)
@@ -439,9 +456,27 @@ if st.session_state["ai_running"]:
             seat = st.session_state["seats"][seat_id]
 
             # 임시 상태 처리 포함한 최종 상태 반환
-            final_state = update_seat_state(seat, inferred)
+            result = update_seat_state(seat, inferred)
 
-            seat_states[seat_id] = final_state
+            # 반환값이 1개 또는 3개인지 자동 처리
+            if isinstance(result, tuple):
+                final_state, temp_state, remain = result
+            else:
+                final_state, temp_state, remain = result, None, None
+
+
+            # seat_info 갱신
+            seat["state"] = final_state
+            seat["temp_state"] = temp_state
+            seat["remain"] = remain   # 필요하면 표시용
+
+            seat_states[seat_id] = final_state  # 테이블용
+
+        # 모든 상태 업데이트 후 정책 엔진 실행
+        alerts = update_policies(st.session_state["seats"])
+        if alerts:
+            for a in alerts:
+                st.warning(f"[{a['type']}] {a['message']}")
 
 
 
