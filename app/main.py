@@ -13,6 +13,8 @@ from ultralytics import YOLO
 import pandas as pd
 import csv
 from logic.seat_logic import update_seat_state
+from logic.seat_logic import update_release_timer
+
 
 
 
@@ -118,7 +120,6 @@ def run_webcam_test(model, seat_rois):
         st.write(seat_states)
 
         time.sleep(1)
-
 
 
 # ------------------------------------------------------------
@@ -470,8 +471,8 @@ if st.session_state["ai_running"]:
             seat = st.session_state["seats"][seat_id]
 
             # 임시 상태 처리 포함한 최종 상태 반환
+            update_release_timer(st.session_state["seats"])
             result = update_seat_state(seat, inferred)
-
             # 반환값이 1개 또는 3개인지 자동 처리
             if isinstance(result, tuple):
                 final_state, temp_state, remain = result
@@ -485,6 +486,26 @@ if st.session_state["ai_running"]:
             seat["remain"] = remain   # 필요하면 표시용
 
             seat_states[seat_id] = final_state  # 테이블용
+
+        # -----------------------------
+        # DEADLINE 기반 예약 해제까지 남은 시간 계산
+        # -----------------------------
+        now_deadline = datetime.now()
+        
+        for sid, s in st.session_state["seats"].items():
+            deadline = s.get("unreserve_deadline")
+        
+            if not s["reserved"]:
+                s["release_remain"] = None
+                continue
+            
+            if deadline is None:
+                s["release_remain"] = None
+                continue
+            
+            remain = int((deadline - now_deadline).total_seconds())
+            s["release_remain"] = max(remain, 0)
+
 
         # 모든 상태 업데이트 후 정책 엔진 실행
         alerts = update_policies(st.session_state["seats"])

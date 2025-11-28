@@ -1,353 +1,292 @@
 from datetime import datetime, timedelta
 import random
 
-from datetime import datetime
-
-STATE_STABLE_TIME = 20   # 2분
-
-def update_seat_state(seat_info, inferred_state):
-    """
-    반환값:
-        final_state : 현재 확정된 상태 (기존 상태)
-        temp_state  : 임시 상태 (확정 전)
-        remain_sec  : 임시 상태가 확정되기까지 남은 시간 (초)
-    """
-    # 1) 예약이 안 된 좌석 → 상태 업데이트 금지
-    if not seat_info["reserved"]:
-        seat_info["state"] = "Empty"
-        seat_info["transition_state"] = None
-        seat_info["transition_start"] = None
-        return "Empty"
-
-    # ------ 예약된 좌석만 아래 로직 실행 ------
-
-    now = datetime.now()
-
-    current_state = seat_info["state"]
-    temp_state = seat_info.get("temp_state")
-    temp_started = seat_info.get("temp_started")
-
-    # 1) 상태가 같으며 임시상태 필요없음 → temp 초기화
-    if inferred_state == current_state:
-        seat_info["temp_state"] = None
-        seat_info["temp_started"] = None
-        return current_state, None, None
-
-    # 2) temp_state 시작
-    if temp_state is None:
-        seat_info["temp_state"] = inferred_state
-        seat_info["temp_started"] = now
-        remain = STATE_STABLE_TIME
-        return current_state, inferred_state, remain
-
-    # 3) temp_state가 있는데 다른 상태로 바뀜 → 리셋
-    if temp_state != inferred_state:
-        seat_info["temp_state"] = inferred_state
-        seat_info["temp_started"] = now
-        remain = STATE_STABLE_TIME
-        return current_state, inferred_state, remain
-
-    # 4) temp_state 유지 시간 체크
-    elapsed = (now - temp_started).total_seconds()
-    remain = max(0, STATE_STABLE_TIME - int(elapsed))
-
-    if elapsed >= STATE_STABLE_TIME:
-        # 확정 상태로 변경!
-        seat_info["state"] = inferred_state
-        seat_info["last_update"] = now
-        seat_info["temp_state"] = None
-        seat_info["temp_started"] = None
-        return inferred_state, None, None
-
-    # 아직 확정 안됨
-    return current_state, temp_state, remain
-
-
-# 좌석 목록 (필요하면 나중에 확장 가능)
+# -----------------------------
+# 설정값
+# -----------------------------
+STATE_STABLE_TIME = 20  # temp_state 유지 시간 (초)
 INITIAL_SEATS = ["A1", "A2", "A3", "B1", "B2", "B3"]
-
-# 가능한 상태
 VALID_STATES = ["Empty", "Occupied", "Camped"]
 
-# 정책 설정 (분 단위)
+# 정책 설정
 POLICY_CONFIG = {
-    "camping_minutes": 120,       # 2시간 이상 Camped면 캠핑 의심
-    "no_show_minutes": 20,        # 예약 후 20분 동안 안 오면 No-Show
-    "return_grace_minutes": 5,    # 떠난 후 5분 안에 반납 처리되지 않으면 반납 필요
+    "camping_minutes": 120,
+    "no_show_minutes": 20,
+    "return_grace_minutes": 5,
 }
 
 
+# -----------------------------
+# 좌석 초기화
+# -----------------------------
 def init_seats():
-    """
-    좌석 상태 초기화.
-
-    각 좌석 정보 구조:
-    {
-        "state": "Empty" | "Occupied" | "Camped",
-        "last_update": datetime | None,
-
-        # 정책 엔진용 필드 (Day 5~)
-        "reserved": False,            # 예약 여부
-        "reserved_at": None,          # 예약이 만들어진 시간
-        "ever_occupied": False,       # 한 번이라도 Occupied 된 적 있는지
-        "authorized": True,           # 인가된 사용자 여부 (False면 비인가)
-    }
-    """
     seats = {}
+
     for seat in INITIAL_SEATS:
-        is_reserved = random.choice([True, False])  # 🔥 랜덤 예약 생성
+        is_reserved = random.choice([True, False])
+
         seats[seat] = {
             "state": "Empty",
             "last_update": None,
-            # 예약 랜덤 설정
+
+            # 예약 관련
             "reserved": is_reserved,
             "reserved_at": datetime.now() if is_reserved else None,
-            # 정책 엔진용
+
+            # DEADLINE
+            "unreserve_deadline": (
+                datetime.now() + timedelta(minutes=1) 
+                if is_reserved else None
+            ),
+            "release_remain": None,       # 남은 시간 (초)
+
+            # 정책 엔진 관련
             "ever_occupied": False,
             "authorized": True,
+
+            # 임시상태
+            "temp_state": None,
+            "temp_started": None,
         }
+
     return seats
 
 
+# -----------------------------
+# 상태 강제 변경 (수동 버튼)
+# -----------------------------
 def set_seat_state(seats, seat_id, new_state):
-    """
-    좌석 상태를 변경하고, last_update / ever_occupied를 갱신하는 함수.
-    """
     if seat_id not in seats:
         raise ValueError(f"Unknown seat id: {seat_id}")
 
     if new_state not in VALID_STATES:
         raise ValueError(f"Invalid state: {new_state}")
 
-    info = seats[seat_id]
-    info["state"] = new_state
-    info["last_update"] = datetime.now()
+    s = seats[seat_id]
+    s["state"] = new_state
+    s["last_update"] = datetime.now()
 
-    # 한 번이라도 Occupied가 된 적이 있는지 기록
     if new_state == "Occupied":
-        info["ever_occupied"] = True
+        s["ever_occupied"] = True
+
+    # DEADLINE 재설정
+    if new_state == "Empty":
+        s["unreserve_deadline"] = datetime.now() + timedelta(minutes=1)
+    elif new_state == "Camped":
+        s["unreserve_deadline"] = datetime.now() + timedelta(minutes=3)
+    else:
+        s["unreserve_deadline"] = None
 
 
-# =========================
-# Day 3-4: 3-State 판별 로직
-# =========================
-
-
+# -----------------------------
+# AI 상태 판별
+# -----------------------------
 def check_status(detections):
-    """
-    YOLO 탐지 결과(클래스 이름 리스트)를 받아서
-    좌석 상태 (Empty / Occupied / Camped)를 결정.
+    det = set(detections)
 
-    Camped 기준:
-        - backpack
-        - laptop
-        - book
-    """
-
-    det_set = set(detections)
-
-    # 1) 사람이 보이면 무조건 Occupied
-    if "person" in det_set:
+    if "person" in det:
         return "Occupied"
 
-    # 2) 짐만 있으면 Camped (backpack, laptop, book)
-    CAMPED_ITEMS = {"backpack", "laptop", "book"}
-    if det_set & CAMPED_ITEMS:
+    if det & {"backpack", "laptop", "book"}:
         return "Camped"
 
-    # 3) 아무것도 없으면 Empty
     return "Empty"
 
 
+# -----------------------------
+# DEADLINE 기반 임시 상태 + 연장 기능
+# -----------------------------
+def update_seat_state(seat, inferred_state):
+    if not seat["reserved"]:
+        seat["state"] = "Empty"
+        seat["temp_state"] = None
+        seat["temp_started"] = None
+        seat["unreserve_deadline"] = None
+        return "Empty"
 
-# =========================
-# Day 5-6: 정책 엔진 로직
-# =========================
+    now = datetime.now()
+    current = seat["state"]
+    temp = seat.get("temp_state")
+    temp_started = seat.get("temp_started")
 
+    deadline = seat.get("unreserve_deadline")
+
+    # -----------------------------
+    # 1) 상태 동일 → temp 초기화
+    # -----------------------------
+    if inferred_state == current:
+        seat["temp_state"] = None
+        seat["temp_started"] = None
+        return current, None, None
+
+    # -----------------------------
+    # 2) 새로운 temp_state 시작
+    # -----------------------------
+    if temp is None:
+        seat["temp_state"] = inferred_state
+        seat["temp_started"] = now
+
+        # 🔥 남은 시간이 20초 이하이면 DEADLINE 연장
+        remain = seat.get("release_remain")
+        if remain is not None and remain <= 20 and deadline is not None:
+            extra = 20 - remain
+            seat["unreserve_deadline"] = deadline + timedelta(seconds=extra + 20)
+
+        return current, inferred_state, STATE_STABLE_TIME
+
+    # -----------------------------
+    # 3) temp_state는 있는데 다른 상태로 바뀜
+    # -----------------------------
+    if temp != inferred_state:
+        seat["temp_state"] = inferred_state
+        seat["temp_started"] = now
+
+        remain = seat.get("release_remain")
+        if remain is not None and remain <= 20 and deadline is not None:
+            extra = 20 - remain
+            seat["unreserve_deadline"] = deadline + timedelta(seconds=extra)
+
+        return current, inferred_state, STATE_STABLE_TIME
+
+    # -----------------------------
+    # 4) temp_state 유지 중
+    # -----------------------------
+    elapsed = (now - temp_started).total_seconds()
+    remain_temp = max(0, STATE_STABLE_TIME - int(elapsed))
+
+    # 임시 상태가 확정될 때
+    if elapsed >= STATE_STABLE_TIME:
+        seat["state"] = inferred_state
+        seat["last_update"] = now
+        seat["temp_state"] = None
+        seat["temp_started"] = None
+
+        # DEADLINE 재설정
+        if inferred_state == "Empty":
+            seat["unreserve_deadline"] = now + timedelta(minutes=1)
+        elif inferred_state == "Camped":
+            seat["unreserve_deadline"] = now + timedelta(minutes=3)
+        else:
+            seat["unreserve_deadline"] = None
+
+        return inferred_state, None, None
+
+    return current, temp, remain_temp
+
+
+# -----------------------------
+# DEADLINE 기반 정책 엔진
+# -----------------------------
 def update_policies(seats, now=None):
-
     if now is None:
         now = datetime.now()
 
     alerts = []
 
-    """
-    좌석 상태(seats)를 기준으로
-    No-Show / 반납 / 캠핑 / 비인가 4가지 정책을 체크하고,
-    위반/의심 항목에 대한 메시지 리스트를 반환.
+    for sid, seat in seats.items():
+        state = seat["state"]
+        reserved = seat["reserved"]
+        deadline = seat.get("unreserve_deadline")
+        reserved_at = seat.get("reserved_at")
+        last_update = seat.get("last_update")
+        ever_occ = seat["ever_occupied"]
+        authorized = seat["authorized"]
 
-    return 형식 예:
-        [
-            {"seat": "A1", "type": "camping", "message": "..."},
-            {"seat": "B2", "type": "no_show", "message": "..."},
-            ...
-        ]
-    """
+        # ------------------------------------------------------------------
+        # DEADLINE 남은 시간 계산 (main.py에서 보여주기 위해)
+        # ------------------------------------------------------------------
+        if reserved and deadline is not None:
+            remain = int((deadline - now).total_seconds())
+            seat["release_remain"] = max(remain, 0)
+        else:
+            seat["release_remain"] = None
 
+        # ------------------------------------------------------------------
+        # 1) DEADLINE 도달 → 자동 예약 해제
+        # ------------------------------------------------------------------
+        if reserved and deadline is not None and now >= deadline:
+            seat["reserved"] = False
+            seat["unreserve_deadline"] = None
 
-    camping_threshold = timedelta(minutes=POLICY_CONFIG["camping_minutes"])
-    no_show_threshold = timedelta(minutes=POLICY_CONFIG["no_show_minutes"])
-    return_threshold = timedelta(minutes=POLICY_CONFIG["return_grace_minutes"])
+            alerts.append({
+                "seat": sid,
+                "type": "Auto-Unreserve",
+                "message": f"{sid} 좌석이 자동으로 예약해제되었습니다."
+            })
+            continue
 
-    for seat_id, info in seats.items():
-        state = info["state"]
-        last_update = info.get("last_update")
-        reserved = info.get("reserved", False)
-        reserved_at = info.get("reserved_at")
-        ever_occupied = info.get("ever_occupied", False)
-        authorized = info.get("authorized", True)
-
-        # -----------------
-        # 1) 캠핑(Camping)
-        # -----------------
-        if state == "Camped" and last_update is not None:
-            elapsed = now - last_update
-            if elapsed >= camping_threshold:
+        # -------------------------
+        # 캠핑 (STATE 기반)
+        # -------------------------
+        if state == "Camped" and last_update:
+            if now - last_update >= timedelta(minutes=POLICY_CONFIG["camping_minutes"]):
                 alerts.append({
-                    "seat": seat_id,
+                    "seat": sid,
                     "type": "camping",
-                    "message": (
-                        f"{seat_id} 좌석: {POLICY_CONFIG['camping_minutes']}분 이상 "
-                        f"짐만 있어서 '캠핑' 의심"
-                    ),
+                    "message": f"{sid} 좌석이 2시간 이상 짐만 존재합니다."
                 })
 
-        # -----------------
-        # 2) No-Show
-        # -----------------
-        # 조건: 예약은 되어 있는데, 사람이 한 번도 앉지 않았고(ever_occupied=False),
-        #       좌석 상태가 계속 Empty인 경우
-        if reserved and state == "Empty" and reserved_at is not None and not ever_occupied:
-            elapsed_since_resv = now - reserved_at
-            if elapsed_since_resv >= no_show_threshold:
+        # -------------------------
+        # No-Show
+        # -------------------------
+        if reserved and state == "Empty" and not ever_occ and reserved_at:
+            if now - reserved_at >= timedelta(minutes=POLICY_CONFIG["no_show_minutes"]):
                 alerts.append({
-                    "seat": seat_id,
+                    "seat": sid,
                     "type": "no_show",
-                    "message": (
-                        f"{seat_id} 좌석: 예약 후 {POLICY_CONFIG['no_show_minutes']}분이 지나도록 "
-                        f"착석하지 않아 'No-Show' 의심"
-                    ),
+                    "message": f"{sid} 좌석이 No-Show 의심됩니다."
                 })
 
-        # -----------------
-        # 3) 반납 필요(Return)
-        # -----------------
-        # 조건: 예전에 Occupied였던 좌석이 지금은 Empty이고,
-        #       일정 시간(return_grace_minutes) 이상 그대로인 경우
-        if reserved and state == "Empty" and ever_occupied and last_update is not None:
-            elapsed_empty = now - last_update
-            if elapsed_empty >= return_threshold:
+        # -------------------------
+        # Return Needed
+        # -------------------------
+        if reserved and state == "Empty" and ever_occ and last_update:
+            if now - last_update >= timedelta(minutes=POLICY_CONFIG["return_grace_minutes"]):
                 alerts.append({
-                    "seat": seat_id,
+                    "seat": sid,
                     "type": "return",
-                    "message": (
-                        f"{seat_id} 좌석: 사용자가 떠난 뒤 "
-                        f"{POLICY_CONFIG['return_grace_minutes']}분 이상 비어 있어 "
-                        f"'반납 처리'가 필요해 보입니다."
-                    ),
+                    "message": f"{sid} 좌석은 사용 후 반납이 필요합니다."
                 })
 
-        # -----------------
-        # 4) 비인가 사용자(Unauthorized)
-        # -----------------
-        # 조건: 좌석에 누가 앉아 있거나 짐이 있는데(Occupied/Camped),
-        #       authorized 플래그가 False인 경우
+        # -------------------------
+        # Unauthorized
+        # -------------------------
         if state in ("Occupied", "Camped") and not authorized:
             alerts.append({
-                "seat": seat_id,
+                "seat": sid,
                 "type": "unauthorized",
-                "message": (
-                    f"{seat_id} 좌석: 비인가 사용자 혹은 비인가 사용 패턴이 감지되었습니다."
-                ),
+                "message": f"{sid}: 비인가 사용자 감지"
             })
 
-        # --- 예약 해제까지 남은 시간 계산 ---
-        for seat_id in seats:
-            seat = seats[seat_id]  # ✅ seat을 정의해준다
-            last_update = seat["last_update"]
-
-        now = datetime.now()
-        
-        for sid, seat in seats.items():
-        
-            state = seat["state"]
-            reserved = seat["reserved"]
-            last_update = seat["last_update"]
-            reserved_at = seat["reserved_at"]
-        
-            # last_update가 없는 경우 보정
-            if last_update is None:
-                if reserved and reserved_at is not None:
-                    last_update = reserved_at
-                else:
-                    seat["release_remain"] = None
-                    continue
-                
-            elapsed = (now - last_update).total_seconds()
-        
-            # Empty → 1분 (60초)
-            if reserved and state == "Empty":
-                remain = 60 - int(elapsed)
-                seat["release_remain"] = max(remain, 0)
-        
-            # Camped → 3분 (180초)
-            elif reserved and state == "Camped":
-                remain = 180 - int(elapsed)
-                seat["release_remain"] = max(remain, 0)
-        
-            # 그 외는 카운트다운 없음
-            else:
-                seat["release_remain"] = None
-
-
-
-
-        now = datetime.now()
-
-        for seat_id, info in seats.items():
-            state = info["state"]
-            reserved = info["reserved"]
-            last_update = info["last_update"]
-            reserved_at = info["reserved_at"]
-
-            # ---------------------------
-            # last_update = None 보정
-            # ---------------------------
-            if last_update is None:
-                # 예약된 좌석인데 last_update가 없다 → 예약 시점 기준으로 계산
-                if reserved and reserved_at is not None:
-                    last_update = reserved_at
-                else:
-                    continue
-                
-            elapsed = now - last_update
-
-            # ---------------------------
-            # 1) Empty → 1분 지나면 예약 해제
-            # ---------------------------
-            if state == "Empty" and reserved:
-                if elapsed >= timedelta(minutes=1):
-                    info["reserved"] = False
-                    alerts.append({
-                        "seat": seat_id,
-                        "type": "Auto-Unreserve-Empty",
-                        "message": f"{seat_id}는 Empty 상태가 1분 지속되어 예약이 자동 해제되었습니다."
-                    })
-
-            # ---------------------------
-            # 2) Camped → 3분 지나면 예약 해제
-            # ---------------------------
-            if state == "Camped" and reserved:
-                if elapsed >= timedelta(minutes=3):
-                    info["reserved"] = False
-                    alerts.append({
-                        "seat": seat_id,
-                        "type": "Auto-Unreserve-Camped",
-                        "message": f"{seat_id}는 Camped 상태가 3분 지속되어 예약이 자동 해제되었습니다."
-                    })
-
-            # last_update 유지
-            seats[seat_id]["last_update"] = info["last_update"]
-
-
     return alerts
+
+def update_release_timer(seats):
+    now = datetime.now()
+
+    for sid, s in seats.items():
+
+        if not s["reserved"]:
+            s["release_remain"] = None
+            continue
+
+        deadline = s.get("unreserve_deadline")
+
+        # ❗ DEADLINE이 없으면 = 초기 설정 필요
+        if deadline is None:
+            last_update = s.get("last_update") or s.get("reserved_at") or now
+
+            if s["state"] == "Empty":
+                s["unreserve_deadline"] = last_update + timedelta(minutes=1)
+            elif s["state"] == "Camped":
+                s["unreserve_deadline"] = last_update + timedelta(minutes=3)
+            else:
+                s["unreserve_deadline"] = None
+                s["release_remain"] = None
+                continue
+
+            deadline = s["unreserve_deadline"]
+
+        # ❗ 여기서는 DEADLINE을 재설정하지 말고 “계산만”
+        remain = int((deadline - now).total_seconds())
+        s["release_remain"] = max(remain, 0)
+
