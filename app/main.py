@@ -390,6 +390,8 @@ if st.session_state["ai_running"]:
             cls = int(box.cls[0])
             name = remap_class(results.names[cls])
 
+            if name == "object":
+                continue
             x1, y1, x2, y2 = map(int, box.xyxy[0])
 
             # Bounding box draw
