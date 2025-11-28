@@ -12,12 +12,14 @@ import time
 from ultralytics import YOLO
 import pandas as pd
 import csv
+from logic.seat_logic import update_seat_state
+
 
 
 # ------------------------------------------------------------
 # 🎯 YOLO 모델 로드
 # ------------------------------------------------------------
-model = YOLO("yolov8n.pt")
+model = YOLO("yolov8m.pt")
 
 
 # ------------------------------------------------------------
@@ -98,7 +100,18 @@ def run_webcam_test(model, seat_rois):
                 if not (dx2 < x1 or dx1 > x2 or dy2 < y1 or dy1 > y2):
                     in_roi.append(d["name"])
 
-            seat_states[seat_id] = check_status(in_roi)
+            ai_state = check_status(in_roi)
+            final_state = update_seat_state(st.session_state["seats"][seat_id], ai_state)
+            seat_states[seat_id] = final_state
+        
+
+         # 정책 엔진 실행 (좌석 상태 다 업데이트한 후)
+        alerts = update_policies(st.session_state["seats"])
+        if alerts:
+            for a in alerts:
+                st.warning(f"[{a['type']}] {a['message']}")
+
+
 
         # 화면 출력
         stframe.image(frame, channels="BGR")
@@ -387,23 +400,64 @@ if st.session_state["ai_running"]:
                 "name": name,
                 "bbox": [x1, y1, x2, y2]
             })
-
+        # 모든 상태 업데이트 후 정책 엔진 실행
+ 
 
         # -----------------------------
-        # ROI 판별
+        # ROI 판별 + 색상 지정
         # -----------------------------
-        SEAT_IDS = list(st.session_state["seats"].keys())  # 실제 seat ID (A1~B3)
+        SEAT_IDS = list(st.session_state["seats"].keys())  # A1~B3
 
         seat_states = {}
         for idx, roi in enumerate(seat_rois):
-            seat_id = SEAT_IDS[idx]   # ← Seat1이 아니라 A1처럼 실제 좌석 ID 사용
+            seat_id = SEAT_IDS[idx]
 
             x1, y1, x2, y2 = roi["x1"], roi["y1"], roi["x2"], roi["y2"]
 
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            cv2.putText(frame, seat_id, (x1, y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            seat_info = st.session_state["seats"][seat_id]
 
+            # ROI 색 결정
+            if seat_info.get("temp_state") is not None:
+                roi_color = (0, 255, 255)      # Yellow (임시 상태)
+            elif seat_info["reserved"]:
+                roi_color = (0, 255, 0)        # Green (예약된 좌석)
+            else:
+                roi_color = (0, 0, 255)        # Red (예약 안됨)
+
+            if not seat_info["reserved"]:
+                roi_color = (0, 0, 255)    # 예약 없음 → 빨간색
+            elif seat_info.get("temp_state") is not None:
+                roi_color = (0, 255, 255)  # 임시 상태 → 노란색
+            else:
+                roi_color = (0, 255, 0)    # 예약된 좌석 → 초록색
+
+
+            # ROI 박스 그리기
+            cv2.rectangle(frame, (x1, y1), (x2, y2), roi_color, 2)
+
+            # 텍스트도 같이 표시
+            label_text = seat_id
+
+            # 임시 상태가 있을 경우
+            if seat_info.get("temp_state"):
+                if seat_info.get("remain") is not None:
+                    label_text += f" ({seat_info['temp_state']}? {seat_info['remain']}s)"
+                else:
+                    label_text += f" ({seat_info['temp_state']}?)"
+                # 예약 해제 카운트다운 표시
+            if seat_info["reserved"]:
+                if seat_info["state"] in ["Empty", "Camped"]:
+                    remain = seat_info.get("release_remain")
+                    if remain is not None:
+                        mins = remain // 60
+                        secs = remain % 60
+                        label_text += f" [{mins:02d}:{secs:02d}]"
+
+
+            cv2.putText(frame, label_text, (x1, y1 - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, roi_color, 2)
+
+            # ROI 내부 detection 체크
             in_roi = []
             for d in detections:
                 dx1, dy1, dx2, dy2 = d["bbox"]
@@ -411,7 +465,33 @@ if st.session_state["ai_running"]:
                     in_roi.append(d["name"])
 
             inferred = check_status(in_roi)
-            seat_states[seat_id] = inferred
+
+            # 좌석 구조 가져오기
+            seat = st.session_state["seats"][seat_id]
+
+            # 임시 상태 처리 포함한 최종 상태 반환
+            result = update_seat_state(seat, inferred)
+
+            # 반환값이 1개 또는 3개인지 자동 처리
+            if isinstance(result, tuple):
+                final_state, temp_state, remain = result
+            else:
+                final_state, temp_state, remain = result, None, None
+
+
+            # seat_info 갱신
+            seat["state"] = final_state
+            seat["temp_state"] = temp_state
+            seat["remain"] = remain   # 필요하면 표시용
+
+            seat_states[seat_id] = final_state  # 테이블용
+
+        # 모든 상태 업데이트 후 정책 엔진 실행
+        alerts = update_policies(st.session_state["seats"])
+        if alerts:
+            for a in alerts:
+                st.warning(f"[{a['type']}] {a['message']}")
+
 
 
 
