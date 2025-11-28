@@ -289,4 +289,3 @@ def update_release_timer(seats):
         # ❗ 여기서는 DEADLINE을 재설정하지 말고 “계산만”
         remain = int((deadline - now).total_seconds())
         s["release_remain"] = max(remain, 0)
-

@@ -14,6 +14,10 @@ from logic.seat_logic import (
     update_seat_state,
     update_policies,
 )
+def polygon_to_rect(points):
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    return min(xs), min(ys), max(xs), max(ys)
 
 def is_inside_polygon(bbox, polygon):
     x1, y1, x2, y2 = bbox
@@ -32,6 +36,24 @@ def is_inside_polygon(bbox, polygon):
         if inside >= 0:
             return True
     return False
+
+def bbox_intersects_roi(bbox, roi):
+    (x1, y1, x2, y2) = bbox   # YOLO bbox
+
+    # POLYGON → RECT로 변환
+    points = roi["points"]
+    rx1, ry1, rx2, ry2 = polygon_to_rect(points)
+
+    # 교집합 영역 계산
+    inter_x1 = max(x1, rx1)
+    inter_y1 = max(y1, ry1)
+    inter_x2 = min(x2, rx2)
+    inter_y2 = min(y2, ry2)
+
+    # 조금이라도 겹치면 True
+    return inter_x1 < inter_x2 and inter_y1 < inter_y2
+
+
 
 # ============================================
 # 초기 설정
@@ -163,8 +185,9 @@ if st.session_state["ai_running"]:
             # ROI 내부 detection 확인 (⭐ 다각형 기반)
             in_roi = []
             for d in detections:
-                if is_inside_polygon(d["bbox"], polygon):
+                if bbox_intersects_roi(d["bbox"], roi):
                     in_roi.append(d["name"])
+
         
             inferred = check_status(in_roi)
             result = update_seat_state(seat_info, inferred)
