@@ -17,12 +17,21 @@ from logic.seat_logic import (
 
 def is_inside_polygon(bbox, polygon):
     x1, y1, x2, y2 = bbox
-    cx = (x1 + x2) / 2
-    cy = (y1 + y2) / 2
+    test_points = [
+        (x1, y1),         # 좌상단
+        (x2, y1),         # 우상단
+        (x1, y2),         # 좌하단
+        (x2, y2),         # 우하단
+        ((x1 + x2)//2, (y1 + y2)//2)  # 중심
+    ]
 
     pts = np.array(polygon, np.int32)
-    inside = cv2.pointPolygonTest(pts, (cx, cy), False)
-    return inside >= 0
+
+    for (tx, ty) in test_points:
+        inside = cv2.pointPolygonTest(pts, (tx, ty), False)
+        if inside >= 0:
+            return True
+    return False
 
 # ============================================
 # 초기 설정
