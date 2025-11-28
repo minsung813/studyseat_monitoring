@@ -1,379 +1,105 @@
 # streamlit run app/main.py
 import streamlit as st
-from datetime import datetime, timedelta
-from logic.seat_logic import (
-    init_seats, set_seat_state, VALID_STATES,
-    check_status, update_policies
-)
-import json
+import os
+from datetime import datetime
 import cv2
-import numpy as np
-import time
-from ultralytics import YOLO
 import pandas as pd
-import csv
-from logic.seat_logic import update_seat_state
-from logic.seat_logic import update_release_timer
+import time
+import json
+import numpy as np
+from ultralytics import YOLO
+from logic.seat_logic import (
+    init_seats,
+    check_status,
+    update_seat_state,
+    update_policies,
+)
 
+def is_inside_polygon(bbox, polygon):
+    x1, y1, x2, y2 = bbox
+    cx = (x1 + x2) / 2
+    cy = (y1 + y2) / 2
 
+    pts = np.array(polygon, np.int32)
+    inside = cv2.pointPolygonTest(pts, (cx, cy), False)
+    return inside >= 0
 
+# ============================================
+# 초기 설정
+# ============================================
+st.set_page_config(page_title="열람실 좌석 모니터링", layout="wide")
 
-# ------------------------------------------------------------
-# 🎯 YOLO 모델 로드
-# ------------------------------------------------------------
+# YOLO 모델 로드
 model = YOLO("yolov8m.pt")
 
-
-# ------------------------------------------------------------
-# 🎯 좌석별 ROI 불러오기
-# ------------------------------------------------------------
+# ROI 불러오기
 with open("seats_roi.json", "r") as f:
     seat_rois = json.load(f)
 
-
-# ------------------------------------------------------------
-# 🎥 YOLO 실시간 웹캠 판별 함수 (최상단에 위치해야 함)
-# ------------------------------------------------------------
-def run_webcam_test(model, seat_rois):
-
-    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-    if not cap.isOpened():
-        st.error("웹캠을 열 수 없습니다!")
-        return
-
-    stframe = st.empty()
-
-    # ⭐ 유지할 클래스 선언
-    keep_classes = ["person", "backpack", "laptop", "book"]
-
-    # ⭐ 클래스 재매핑 함수
-    def remap_class(name):
-        if name in keep_classes:
-            return name
-        else:
-            return "object"
-
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        # YOLO 추론
-        results = model(frame)[0]
-
-        detections = []
-        for box in results.boxes:
-            cls = int(box.cls[0])
-            name = results.names[cls]
-
-            # ⭐ 클래스 재매핑
-            name = remap_class(name)
-
-            # ⭐ bounding box 좌표
-            x1, y1, x2, y2 = map(int, box.xyxy[0])
-
-            # ⭐⭐ YOLO 박스 그리기 ⭐⭐
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
-            cv2.putText(
-                frame, name, (x1, y1 - 10),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2
-            )
-
-            # 탐지 목록 저장
-            detections.append({
-                "name": name,
-                "bbox": [x1, y1, x2, y2]
-            })
-
-        
-        
-
-        # 좌석 상태 계산
-        seat_states = {}
-
-        for idx, roi in enumerate(seat_rois):
-            seat_id = list(st.session_state["seats"].keys())[idx]
-            x1, y1, x2, y2 = roi["x1"], roi["y1"], roi["x2"], roi["y2"]
-
-            in_roi = []
-            for d in detections:
-                dx1, dy1, dx2, dy2 = d["bbox"]
-
-                if not (dx2 < x1 or dx1 > x2 or dy2 < y1 or dy1 > y2):
-                    in_roi.append(d["name"])
-
-            ai_state = check_status(in_roi)
-            final_state = update_seat_state(st.session_state["seats"][seat_id], ai_state)
-            seat_states[seat_id] = final_state
-        
-
-         # 정책 엔진 실행 (좌석 상태 다 업데이트한 후)
-        alerts = update_policies(st.session_state["seats"])
-        if alerts:
-            for a in alerts:
-                st.warning(f"[{a['type']}] {a['message']}")
-
-
-
-        # 화면 출력
-        stframe.image(frame, channels="BGR")
-        st.write(seat_states)
-
-        time.sleep(1)
-
-
-# ------------------------------------------------------------
-# ⭐ Streamlit UI 구성
-# ------------------------------------------------------------
-st.set_page_config(
-    page_title="열람실 좌석 모니터링",
-    layout="wide",
-)
-
-# 최초 실행 시 세션 초기화
+# 세션 초기화
 if "seats" not in st.session_state:
     st.session_state["seats"] = init_seats()
-
-st.title("📚 열람실 좌석 모니터링 시스템 (Day 1 테스트)")
-
-# ------------------------------------------------------------
-# Day 1-2 수동 좌석 상태 변경
-# ------------------------------------------------------------
-st.subheader("좌석 상태 수동 변경 (Day 1-2 테스트)")
-
-col1, col2 = st.columns(2)
-
-with col1:
-    selected_seat = st.selectbox("좌석 선택", list(st.session_state["seats"].keys()))
-
-with col2:
-    selected_state = st.selectbox("새 상태", VALID_STATES)
-
-if st.button("상태 변경 적용", key="manual_state_btn"):
-    set_seat_state(st.session_state["seats"], selected_seat, selected_state)
-    st.success(f"{selected_seat} 상태가 {selected_state} 로 변경되었습니다.")
-
-
-# ------------------------------------------------------------
-# ⭐ Day 3-4 AI 판별 테스트
-# ------------------------------------------------------------
-st.subheader("🤖 AI 3-State 판별 로직 테스트 (Day 3-4)")
-
-col3, col4, col5 = st.columns(3)
-
-with col3:
-    ai_seat = st.selectbox(
-        "AI 로직을 적용할 좌석 선택",
-        list(st.session_state["seats"].keys()),
-        key="ai_seat_select",
-    )
-
-with col4:
-    scenario = st.selectbox(
-        "탐지 시나리오 선택",
-        [
-            "🟢 아무것도 없음 (Empty)",
-            "🟡 짐만 있음 (Camped)",
-            "🔴 사람이 있음 (Occupied)",
-            "🔴 사람 + 짐 (Occupied)",
-        ],
-        key="ai_scenario_select",
-    )
-
-with col5:
-    st.write("")
-    st.write("")
-    run_ai_button = st.button("AI 로직 적용", key="apply_ai_btn")
-
-scenario_to_detections = {
-    "🟢 아무것도 없음 (Empty)": [],
-    "🟡 짐만 있음 (Camped)": ["backpack"],
-    "🔴 사람이 있음 (Occupied)": ["person"],
-    "🔴 사람 + 짐 (Occupied)": ["person", "backpack"],
-}
-
-if run_ai_button:
-    detections = scenario_to_detections[scenario]
-    inferred_state = check_status(detections)
-
-    set_seat_state(st.session_state["seats"], ai_seat, inferred_state)
-    st.info(
-        f"탐지 결과 {detections} → AI 판별 상태: **{inferred_state}**\n"
-        f"{ai_seat} 좌석에 적용되었습니다!"
-    )
-
-
-# ------------------------------------------------------------
-# 현재 좌석 테이블 출력
-# ------------------------------------------------------------
-st.subheader("현재 좌석 상태")
-
-seats = st.session_state["seats"]
-table = []
-
-for seat_id, info in seats.items():
-    table.append({
-        "Seat": seat_id,
-        "State": info["state"],
-        "Last Update": info["last_update"].strftime("%H:%M:%S") if info["last_update"] else "-"
-    })
-
-st.table(table)
-
-# ------------------------------------------------------------
-# Day 5 정책 엔진 테스트
-# ------------------------------------------------------------
-st.subheader("🧪 Day 5 정책 엔진 테스트 (임시)")
-
-if st.button("테스트용 위반 상황 넣기", key="policy_test_btn"):
-    now = datetime.now()
-
-    # No-Show / 캠핑 / Unauthorized 테스트 데이터
-    seats["A1"]["state"] = "Camped"
-    seats["A1"]["last_update"] = now - timedelta(minutes=130)
-
-    seats["A2"]["state"] = "Empty"
-    seats["A2"]["reserved"] = True
-    seats["A2"]["reserved_at"] = now - timedelta(minutes=30)
-    seats["A2"]["ever_occupied"] = False
-    seats["A2"]["last_update"] = now - timedelta(minutes=30)
-
-    seats["A3"]["state"] = "Empty"
-    seats["A3"]["reserved"] = True
-    seats["A3"]["reserved_at"] = now - timedelta(minutes=40)
-    seats["A3"]["ever_occupied"] = True
-    seats["A3"]["last_update"] = now - timedelta(minutes=10)
-
-    seats["B1"]["state"] = "Occupied"
-    seats["B1"]["authorized"] = False
-    seats["B1"]["last_update"] = now - timedelta(minutes=5)
-
-    st.success("테스트용 정책 위반 상황을 주입했습니다!")
-
-alerts = update_policies(seats)
-if alerts:
-    st.subheader("⚠ 정책 엔진 경고")
-    for alert in alerts:
-        st.warning(f"[{alert['type']}] {alert['message']}")
-else:
-    st.caption("현재 정책 위반 없음")
-
-
-# --------------------------
-# ROI 박스 테스트 (Streamlit-safe)
-# --------------------------
-st.subheader("🎥 ROI 확인용 - 웹캠 테스트")
-
-# 상태 저장
-if "roi_cam_running" not in st.session_state:
-    st.session_state["roi_cam_running"] = False
-
-colA, colB = st.columns(2)
-
-# 버튼들
-start_roi = colA.button("▶ ROI 테스트 시작", key="roi_start")
-stop_roi = colB.button("⏹ 종료", key="roi_stop")
-
-# 시작 버튼 누르면 True
-if start_roi:
-    st.session_state["roi_cam_running"] = True
-
-# 종료 버튼 누르면 False
-if stop_roi:
-    st.session_state["roi_cam_running"] = False
-
-frame_window = st.empty()
-
-# 메인 루프
-if st.session_state["roi_cam_running"]:
-    cap = cv2.VideoCapture(0)
-
-    while st.session_state["roi_cam_running"]:
-        ret, frame = cap.read()
-        if not ret:
-            st.error("웹캠을 불러올 수 없습니다.")
-            break
-
-        # ROI 그리기
-        for idx, r in enumerate(seat_rois):
-            x1, y1, x2, y2 = r["x1"], r["y1"], r["x2"], r["y2"]
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            cv2.putText(frame, f"Seat {idx+1}", (x1, y1 - 8),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        frame_window.image(frame_rgb)
-
-    cap.release()
-    frame_window.empty()
-
-
-
-
-# ------------------------------------------------------------
-# CSV 로그 저장 함수
-# ------------------------------------------------------------
-def save_ai_log(seat_states, csv_file="ai_log.csv"):
-    fieldnames = ["timestamp"] + list(seat_states.keys())
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    # 파일이 존재하는지 체크
-    try:
-        with open(csv_file, "r"):
-            file_exists = True
-    except FileNotFoundError:
-        file_exists = False
-
-    # CSV 쓰기
-    with open(csv_file, "a", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-
-        if not file_exists:
-            writer.writeheader()
-
-        row = {"timestamp": now}
-        row.update(seat_states)
-        writer.writerow(row)
-# ------------------------------------------------------------
-# 🎯 Streamlit 공간 준비 (웹캠 영상 + 상태 텍스트)
-# ------------------------------------------------------------
-st.subheader("🤖 AI 좌석 판별 (실시간 + 로그 저장)")
-
-colA, colB = st.columns(2)
-
-# 버튼 (key 중복 제거!)
-start_ai = colA.button("▶ AI 좌석 판별 시작", key="ai_start_main")
-stop_ai = colB.button("⏹ 종료", key="ai_stop_main")
-
-# AI 실행 상태 관리
 if "ai_running" not in st.session_state:
     st.session_state["ai_running"] = False
+if "admin_mode" not in st.session_state:
+    st.session_state["admin_mode"] = False
 
-if start_ai:
-    st.session_state["ai_running"] = True
-if stop_ai:
-    st.session_state["ai_running"] = False
+seats = st.session_state["seats"]
 
-# 웹캠 영상 + 상태 테이블
+
+# ============================================
+# 🎛 관리자 모드 토글
+# ============================================
+st.sidebar.title("⚙ 관리자 설정")
+
+st.sidebar.write("관리자 기능을 켜면 수동 조작 기능이 나타납니다.")
+admin_toggle = st.sidebar.checkbox("관리자 모드 활성화", value=False)
+st.session_state["admin_mode"] = admin_toggle
+
+
+# ============================================
+# 관리자 모드에서는 수동 조작 기능 표시
+# ============================================
+if st.session_state["admin_mode"]:
+    st.subheader("🛠 관리자 모드 - 수동 좌석 상태 변경")
+
+    col1, col2 = st.columns(2)
+    seat_select = col1.selectbox("좌석 선택", list(seats.keys()))
+    state_select = col2.selectbox("새 상태 설정", ["Empty", "Occupied", "Camped"])
+
+    if st.button("적용"):
+        seats[seat_select]["state"] = state_select
+        seats[seat_select]["last_update"] = datetime.now()
+        st.success(f"{seat_select} 상태가 '{state_select}' 로 변경되었습니다.")
+
+
+# ============================================
+# 📸 실시간 좌석 판별 UI
+# ============================================
+st.title("📚 열람실 좌석 모니터링 시스템")
+
 col_cam, col_status = st.columns(2)
 cam_window = col_cam.empty()
 status_window = col_status.empty()
 
-LOG_CSV = "seat_state_log.csv"
+start_btn = st.button("▶ AI 판별 시작")
+stop_btn = st.button("⏹ 종료")
 
-# ------------------------------------------------------------
-# 🎥 AI 좌석 자동 판별 루프 (바운딩박스 포함 Streamlit-safe)
-# ------------------------------------------------------------
+if start_btn:
+    st.session_state["ai_running"] = True
+if stop_btn:
+    st.session_state["ai_running"] = False
+
+
+# ============================================
+# 🎥 AI 판별 루프
+# ============================================
 if st.session_state["ai_running"]:
     cap = cv2.VideoCapture(0)
-
     keep_classes = ["person", "backpack", "laptop", "book", "clothes"]
 
     def remap_class(name):
-        if name in keep_classes:
-            return name
-        else:
-            return "object"
+        return name if name in keep_classes else "object"
 
     while st.session_state["ai_running"]:
         ret, frame = cap.read()
@@ -381,7 +107,6 @@ if st.session_state["ai_running"]:
             st.error("웹캠을 불러올 수 없습니다.")
             break
 
-        # YOLO는 RGB 이미지로 추론
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = model(rgb)[0]
 
@@ -390,155 +115,95 @@ if st.session_state["ai_running"]:
             cls = int(box.cls[0])
             name = remap_class(results.names[cls])
 
+            # object 모두 무시
             if name == "object":
                 continue
+
             x1, y1, x2, y2 = map(int, box.xyxy[0])
 
-            # Bounding box draw
+            # 시각화
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
             cv2.putText(frame, name, (x1, y1 - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
-            detections.append({
-                "name": name,
-                "bbox": [x1, y1, x2, y2]
-            })
-        # 모든 상태 업데이트 후 정책 엔진 실행
- 
+            detections.append({"name": name, "bbox": [x1, y1, x2, y2]})
 
-        # -----------------------------
-        # ROI 판별 + 색상 지정
-        # -----------------------------
-        SEAT_IDS = list(st.session_state["seats"].keys())  # A1~B3
-
+        # ===========================
+        # ROI 기반 좌석 판별
+        # ===========================
+        SEAT_IDS = list(seats.keys())
         seat_states = {}
+        
         for idx, roi in enumerate(seat_rois):
             seat_id = SEAT_IDS[idx]
-
-            x1, y1, x2, y2 = roi["x1"], roi["y1"], roi["x2"], roi["y2"]
-
-            seat_info = st.session_state["seats"][seat_id]
-
-            # ROI 색 결정
-            if seat_info.get("temp_state") is not None:
-                roi_color = (0, 255, 255)      # Yellow (임시 상태)
-            elif seat_info["reserved"]:
-                roi_color = (0, 255, 0)        # Green (예약된 좌석)
-            else:
-                roi_color = (0, 0, 255)        # Red (예약 안됨)
-
-            if not seat_info["reserved"]:
-                roi_color = (0, 0, 255)    # 예약 없음 → 빨간색
-            elif seat_info.get("temp_state") is not None:
-                roi_color = (0, 255, 255)  # 임시 상태 → 노란색
-            else:
-                roi_color = (0, 255, 0)    # 예약된 좌석 → 초록색
-
-
-            # ROI 박스 그리기
-            cv2.rectangle(frame, (x1, y1), (x2, y2), roi_color, 2)
-
-            # 텍스트도 같이 표시
-            label_text = seat_id
-
-            # 임시 상태가 있을 경우
+            polygon = roi["points"]   # ⭐ 다각형 사용
+            seat_info = seats[seat_id]
+        
+            # ROI 색상
             if seat_info.get("temp_state"):
-                if seat_info.get("remain") is not None:
-                    label_text += f" ({seat_info['temp_state']}? {seat_info['remain']}s)"
-                else:
-                    label_text += f" ({seat_info['temp_state']}?)"
-                # 예약 해제 카운트다운 표시
-            if seat_info["reserved"]:
-                if seat_info["state"] in ["Empty", "Camped"]:
-                    remain = seat_info.get("release_remain")
-                    if remain is not None:
-                        mins = remain // 60
-                        secs = remain % 60
-                        label_text += f" [{mins:02d}:{secs:02d}]"
-
-
-            cv2.putText(frame, label_text, (x1, y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, roi_color, 2)
-
-            # ROI 내부 detection 체크
+                roi_color = (0, 255, 255)
+            elif seat_info["reserved"]:
+                roi_color = (0, 255, 0)
+            else:
+                roi_color = (0, 0, 255)
+        
+            # ROI polygon 그리기
+            pts = np.array(polygon, np.int32).reshape((-1, 1, 2))
+            cv2.polylines(frame, [pts], True, roi_color, 2)
+        
+            # ROI 내부 detection 확인 (⭐ 다각형 기반)
             in_roi = []
             for d in detections:
-                dx1, dy1, dx2, dy2 = d["bbox"]
-                if not (dx2 < x1 or dx1 > x2 or dy2 < y1 or dy1 > y2):
+                if is_inside_polygon(d["bbox"], polygon):
                     in_roi.append(d["name"])
-
+        
             inferred = check_status(in_roi)
-
-            # 좌석 구조 가져오기
-            seat = st.session_state["seats"][seat_id]
-
-            # 임시 상태 처리 포함한 최종 상태 반환
-            update_release_timer(st.session_state["seats"])
-            result = update_seat_state(seat, inferred)
-            # 반환값이 1개 또는 3개인지 자동 처리
+            result = update_seat_state(seat_info, inferred)
+        
+            # 반환값 정리
             if isinstance(result, tuple):
                 final_state, temp_state, remain = result
             else:
                 final_state, temp_state, remain = result, None, None
-
-
-            # seat_info 갱신
-            seat["state"] = final_state
-            seat["temp_state"] = temp_state
-            seat["remain"] = remain   # 필요하면 표시용
-
-            seat_states[seat_id] = final_state  # 테이블용
-
-        # -----------------------------
-        # DEADLINE 기반 예약 해제까지 남은 시간 계산
-        # -----------------------------
-        now_deadline = datetime.now()
         
-        for sid, s in st.session_state["seats"].items():
-            deadline = s.get("unreserve_deadline")
+            seat_info["state"] = final_state
+            seat_info["temp_state"] = temp_state
+            seat_info["remain"] = remain
         
-            if not s["reserved"]:
-                s["release_remain"] = None
-                continue
-            
-            if deadline is None:
-                s["release_remain"] = None
-                continue
-            
-            remain = int((deadline - now_deadline).total_seconds())
-            s["release_remain"] = max(remain, 0)
+            seat_states[seat_id] = final_state
+        
+            # ROI 텍스트 표시
+            tx, ty = polygon[0]
+            label = seat_id
+            if temp_state:
+                sec = remain if remain is not None else "..."
+                label += f" ({temp_state}? {sec}s)"
+            cv2.putText(frame, label, (tx, ty - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, roi_color, 2)
+        
 
-
-        # 모든 상태 업데이트 후 정책 엔진 실행
-        alerts = update_policies(st.session_state["seats"])
+        # 정책 엔진 실행
+        alerts = update_policies(seats)
         if alerts:
             for a in alerts:
                 st.warning(f"[{a['type']}] {a['message']}")
 
+        # 예약된 좌석만 테이블로 표시
+        filtered_for_table = []
+        for sid, info in seats.items():
+            if info["reserved"]:
+                filtered_for_table.append({
+                    "Seat": sid,
+                    "State": info["state"],
+                    "Temp": info.get("temp_state"),
+                    "Remain": info.get("remain"),
+                    "Reserved": info["reserved"],
+                    "Release_Remain": info.get("release_remain"),
+                    "Last Update": info["last_update"].strftime("%H:%M:%S") if info["last_update"] else "-"
+                })
 
-
-
-        # -----------------------------
-        # 🔥 예약된 좌석만 필터링 및 표시
-        # -----------------------------
-        filtered_states = {
-            seat: state
-            for seat, state in seat_states.items()
-            if st.session_state["seats"][seat]["reserved"]
-        }
-
-        # Streamlit에 출력
         cam_window.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-        status_window.table(filtered_states)
-
-        # CSV 저장
-        df = pd.DataFrame([filtered_states])
-        df.to_csv(
-            LOG_CSV,
-            mode='a',
-            header=not pd.io.common.file_exists(LOG_CSV),
-            index=False,
-        )
+        status_window.table(filtered_for_table)
 
         time.sleep(0.2)
 
